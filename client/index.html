@@ -4,10 +4,35 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CipherChat</title>
+  <!-- Socket.io Library -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 15px; max-width: 500px; margin: auto; }
+    #chat-box { border: 1px solid #ccc; height: 250px; overflow-y: auto; padding: 10px; margin: 10px 0; background: #f9f9f9; }
+    .hidden { display: none; }
+    input { margin-bottom: 8px; padding: 8px; width: 90%; }
+    button { padding: 8px 16px; cursor: pointer; }
+  </style>
 </head>
 <body>
-  <h1>CipherChat</h1>
-  <p id="status">Connecting to backend...</p>
+  <h2>CipherChat</h2>
+  <div id="status" style="color: green; font-weight: bold; margin-bottom: 10px;">Connecting to backend...</div>
+
+  <!-- Authentication Section -->
+  <div id="auth-section">
+    <h3>Login / Register</h3>
+    <input type="text" id="username" placeholder="Username"><br>
+    <input type="password" id="password" placeholder="Password"><br>
+    <button id="login-btn">Login / Continue</button>
+  </div>
+
+  <!-- Chat Section -->
+  <div id="chat-section" class="hidden">
+    <h3>Live Chat</h3>
+    <div id="chat-box"></div>
+    <input type="text" id="message-input" placeholder="Type a message...">
+    <button id="send-btn">Send</button>
+  </div>
 
   <script src="app.js"></script>
 </body>
