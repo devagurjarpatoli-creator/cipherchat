@@ -1,0 +1,44 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id         String   @id @default(uuid())
+  username   String   @unique
+  email      String   @unique
+  password   String
+  isBanned   Boolean  @default(false)
+  banReason  String?
+  createdAt  DateTime @default(now())
+}
+
+model OwnerWallet {
+  id         String   @id @default(uuid())
+  chain      String   @unique
+  address    String
+  label      String?
+  isPrimary  Boolean  @default(true)
+  updatedAt  DateTime @updatedAt
+}
+
+model UserReport {
+  id              String   @id @default(uuid())
+  reporterId      String
+  reportedUserId  String
+  reason          String
+  evidenceDetails String?
+  status          String   @default("PENDING")
+  createdAt       DateTime @default(now())
+}
+
+model BlacklistedIP {
+  id        String   @id @default(uuid())
+  ip        String   @unique
+  reason    String?
+  createdAt DateTime @default(now())
+}
