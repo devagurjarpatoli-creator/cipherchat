@@ -1,9 +1,19 @@
-FROM node:20-alpine
+FROM node:18-alpine
+
 WORKDIR /usr/src/app
+
+# Copy package files FIRST
 COPY package*.json ./
-COPY prisma ./prisma/
+
+# Install dependencies
 RUN npm install
+
+# Copy Prisma schema and generate client
+COPY prisma ./prisma/
 RUN npx prisma generate
+
+# Copy the rest of the application files
 COPY . .
-EXPOSE 5000
+
+# Start the application
 CMD ["npm", "start"]
