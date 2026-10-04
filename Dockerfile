@@ -2,7 +2,7 @@ FROM node:18-alpine
 
 WORKDIR /usr/src/app
 
-# Copy package files from the server folder
+# Copy package.json from the server folder into the working directory
 COPY server/package*.json ./
 
 # Install dependencies
@@ -12,8 +12,8 @@ RUN npm install
 COPY prisma ./prisma/
 RUN npx prisma generate
 
-# Copy the rest of the application files
+# Copy the rest of the workspace files
 COPY . .
 
-# Start the application from the server folder
+# Start the server
 CMD ["node", "server/server.js"]
