@@ -2,19 +2,19 @@ FROM node:18-alpine
 
 WORKDIR /usr/src/app
 
-# Copy server package file and install dependencies
-COPY server/package*.json ./server/
-WORKDIR /usr/src/app/server
-RUN npm install
-
-# Return to root directory and copy all source files
-WORKDIR /usr/src/app
+# Copy all project files into container
 COPY . .
 
+# Move to server folder where package.json lives
+WORKDIR /usr/src/app/server
+
+# Install dependencies inside server directory
+RUN npm install
+
 # Generate Prisma client using root schema
-RUN npx prisma generate --schema=./prisma/schema.prisma
+RUN npx prisma generate --schema=../prisma/schema.prisma
 
 EXPOSE 10000
 
-# Start server
-CMD ["node", "server/server.js"]
+# Start the server
+CMD ["node", "server.js"]
