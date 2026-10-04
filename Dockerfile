@@ -2,8 +2,8 @@ FROM node:18-alpine
 
 WORKDIR /usr/src/app
 
-# Copy package files FIRST
-COPY package*.json ./
+# Copy package files from the server folder
+COPY server/package*.json ./
 
 # Install dependencies
 RUN npm install
@@ -15,5 +15,5 @@ RUN npx prisma generate
 # Copy the rest of the application files
 COPY . .
 
-# Start the application
-CMD ["npm", "start"]
+# Start the application from the server folder
+CMD ["node", "server/server.js"]
