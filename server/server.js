@@ -19,6 +19,6 @@ app.use('/api/v1', moderationRoutes);
 app.use('/api/v1', walletRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
-
+app.get('/', (req, res) => res.send('CipherChat Backend is Running!'));
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`CipherChat Server running on port ${PORT}`));
