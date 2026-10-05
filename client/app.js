@@ -5,7 +5,7 @@ let currentChatTarget = "Global";
 let rsaKeyPair = null;
 const peerPublicKeys = {};
 
-// In-Memory Chat History
+// In-Memory Chat History Store
 const chatHistory = { "Global": [] };
 
 function bufferToBase64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
@@ -16,7 +16,7 @@ function base64ToBuffer(b64) {
   return bytes.buffer;
 }
 
-// Render message payload (Text or Encrypted File)
+// Append Message Bubble to DOM
 function appendBubble(sender, contentObj, isSelf = false) {
   const box = document.getElementById("chat-box");
   const msgDiv = document.createElement("div");
@@ -34,7 +34,10 @@ function appendBubble(sender, contentObj, isSelf = false) {
     textSpan.innerText = contentObj.text;
     msgDiv.appendChild(textSpan);
   } else if (contentObj.type === "file") {
-    if (contentObj.fileType.startsWith("image/")) {
+    const isImage = (contentObj.fileType && contentObj.fileType.startsWith("image/")) || 
+                    (contentObj.dataUrl && contentObj.dataUrl.startsWith("data:image/"));
+    
+    if (isImage) {
       const img = document.createElement("img");
       img.src = contentObj.dataUrl;
       msgDiv.appendChild(img);
@@ -42,8 +45,8 @@ function appendBubble(sender, contentObj, isSelf = false) {
       const link = document.createElement("a");
       link.className = "file-link";
       link.href = contentObj.dataUrl;
-      link.download = contentObj.fileName;
-      link.innerText = `📄 Download ${contentObj.fileName}`;
+      link.download = contentObj.fileName || "downloaded_file";
+      link.innerText = `📄 Download ${contentObj.fileName || "file"}`;
       msgDiv.appendChild(link);
     }
   }
@@ -154,6 +157,67 @@ async function sendEncryptedMessage(contentObj) {
   socket.emit("send_message", { sender: currentUsername, recipient: currentChatTarget, ...encryptedData });
 }
 
+// Client-side image optimizer using HTML5 Canvas
+function processAndOptimizeFile(file) {
+  return new Promise((resolve, reject) => {
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          let width = img.width;
+          let height = img.height;
+          const maxDim = 1200;
+
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.82);
+          resolve({
+            type: "file",
+            fileName: file.name,
+            fileType: "image/jpeg",
+            dataUrl: compressedDataUrl
+          });
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    } else {
+      if (file.size > 5 * 1024 * 1024) {
+        alert("File size exceeds 5MB limit!");
+        return reject("File too large");
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        resolve({
+          type: "file",
+          fileName: file.name,
+          fileType: file.type || "application/octet-stream",
+          dataUrl: reader.result
+        });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    }
+  });
+}
+
 window.addEventListener("DOMContentLoaded", () => {
   fetch(API_URL)
     .then(() => document.getElementById("status").innerText = "🔒 E2EE Online")
@@ -190,7 +254,7 @@ window.addEventListener("DOMContentLoaded", () => {
     document.getElementById("chat-section").classList.remove("hidden");
   });
 
-  // Text Send Handler
+  // Send Text
   document.getElementById("send-btn").addEventListener("click", async () => {
     const input = document.getElementById("message-input");
     const msg = input.value.trim();
@@ -204,32 +268,21 @@ window.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Enter") document.getElementById("send-btn").click();
   });
 
-  // File Attachment Handler
-  const attachBtn = document.getElementById("attach-btn");
+  // Send Image/File
   const fileInput = document.getElementById("file-input");
-
-  attachBtn.addEventListener("click", () => fileInput.click());
-
-  fileInput.addEventListener("change", (e) => {
+  fileInput.addEventListener("change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (file.size > 8 * 1024 * 1024) {
-      alert("File size exceeds 8MB limit!");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result;
-      await sendEncryptedMessage({
-        type: "file",
-        fileName: file.name,
-        fileType: file.type,
-        dataUrl: dataUrl
-      });
+    try {
+      document.getElementById("status").innerText = "Encrypting file...";
+      const filePayload = await processAndOptimizeFile(file);
+      await sendEncryptedMessage(filePayload);
+      document.getElementById("status").innerText = `Logged in as: ${currentUsername}`;
       fileInput.value = "";
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error("File processing failed:", err);
+      document.getElementById("status").innerText = `Logged in as: ${currentUsername}`;
+    }
   });
 });

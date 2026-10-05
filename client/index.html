@@ -35,12 +35,26 @@
     .msg.received { align-self: flex-start; background: #ffffff; border-top-left-radius: 2px; }
     .msg .sender-name { font-size: 0.72rem; font-weight: bold; color: #075e54; margin-bottom: 2px; }
     
-    .msg img { max-width: 100%; max-height: 200px; border-radius: 6px; margin-top: 4px; display: block; }
+    .msg img { max-width: 100%; max-height: 250px; border-radius: 6px; margin-top: 4px; display: block; object-fit: contain; }
     .msg a.file-link { color: #075e54; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 4px; }
 
     .input-bar { display: flex; gap: 8px; padding: 12px; background: #f0f0f0; border-top: 1px solid #e0e0e0; align-items: center; }
     .input-bar input[type="text"] { flex: 1; margin-bottom: 0; }
-    .file-btn { background: #666; padding: 10px 12px; font-size: 1rem; border-radius: 8px; cursor: pointer; color: white; }
+    
+    /* Native File Attachment Label Button */
+    .file-btn { 
+      background: #666; 
+      padding: 10px 14px; 
+      font-size: 1.1rem; 
+      border-radius: 8px; 
+      cursor: pointer; 
+      color: white; 
+      display: inline-flex; 
+      align-items: center; 
+      justify-content: center; 
+      user-select: none;
+    }
+    .file-btn:hover { background: #555; }
 
     .hidden { display: none !important; }
   </style>
@@ -74,8 +88,10 @@
         <div class="chat-header" id="current-chat-title">Chatting in: Global Room</div>
         <div id="chat-box"></div>
         <div class="input-bar">
-          <button class="file-btn" id="attach-btn" title="Attach file">📎</button>
-          <input type="file" id="file-input" class="hidden" />
+          <!-- HTML Native Label Trigger for Mobile Compatibility -->
+          <label for="file-input" class="file-btn" title="Attach image or file">📎</label>
+          <input type="file" id="file-input" style="display: none;" />
+          
           <input type="text" id="message-input" placeholder="Type an encrypted message..." />
           <button id="send-btn">Send</button>
         </div>
