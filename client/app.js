@@ -5,6 +5,11 @@ let currentChatTarget = "Global";
 let rsaKeyPair = null;
 const peerPublicKeys = {}; // { username: CryptoKey }
 
+// In-Memory Chat History Store: { "Global": [...], "Alice": [...] }
+const chatHistory = {
+  "Global": []
+};
+
 function bufferToBase64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
 function base64ToBuffer(b64) {
   const binaryStr = atob(b64);
@@ -13,6 +18,7 @@ function base64ToBuffer(b64) {
   return bytes.buffer;
 }
 
+// Render single message bubble to DOM
 function appendBubble(sender, text, isSelf = false) {
   const box = document.getElementById("chat-box");
   const msgDiv = document.createElement("div");
@@ -31,6 +37,27 @@ function appendBubble(sender, text, isSelf = false) {
 
   box.appendChild(msgDiv);
   box.scrollTop = box.scrollHeight;
+}
+
+// Store message in history and append if currently active room
+function saveAndRenderMessage(roomOrUser, sender, text, isSelf) {
+  if (!chatHistory[roomOrUser]) {
+    chatHistory[roomOrUser] = [];
+  }
+  chatHistory[roomOrUser].push({ sender, text, isSelf });
+
+  // Render to screen only if user is actively viewing this room
+  if (currentChatTarget === roomOrUser) {
+    appendBubble(sender, text, isSelf);
+  }
+}
+
+// Re-render chat box from history when switching tabs
+function loadChatHistory(target) {
+  const box = document.getElementById("chat-box");
+  box.innerHTML = "";
+  const history = chatHistory[target] || [];
+  history.forEach(msg => appendBubble(msg.sender, msg.text, msg.isSelf));
 }
 
 async function generateRsaKeyPair() {
@@ -101,14 +128,17 @@ function updateSidebar(usersList) {
     }
   });
 
-  // Attach click events for chat switching
+  // Switch chat room / DM tab
   document.querySelectorAll(".user-item").forEach(item => {
     item.addEventListener("click", () => {
       document.querySelectorAll(".user-item").forEach(i => i.classList.remove("active"));
       item.classList.add("active");
+      
       currentChatTarget = item.dataset.user;
       document.getElementById("current-chat-title").innerText = `Chatting in: ${currentChatTarget === 'Global' ? 'Global Room' : 'Direct Message with ' + currentChatTarget}`;
-      document.getElementById("chat-box").innerHTML = ""; // Clear box on tab switch
+      
+      // Load saved messages for this conversation
+      loadChatHistory(currentChatTarget);
     });
   });
 }
@@ -128,11 +158,9 @@ window.addEventListener("DOMContentLoaded", () => {
     socket.on("receive_message", async (data) => {
       try {
         const plaintext = await decryptMessage(data);
-        if (data.recipient === "Global" && currentChatTarget === "Global") {
-          appendBubble(data.sender, plaintext, false);
-        } else if (data.recipient !== "Global" && currentChatTarget === data.sender) {
-          appendBubble(data.sender, plaintext, false);
-        }
+        const chatRoom = data.recipient === "Global" ? "Global" : data.sender;
+        
+        saveAndRenderMessage(chatRoom, data.sender, plaintext, false);
       } catch (err) {
         console.error("Decryption failed:", err);
       }
@@ -159,7 +187,8 @@ window.addEventListener("DOMContentLoaded", () => {
     const msg = input.value.trim();
 
     if (msg) {
-      appendBubble("You", msg, true);
+      saveAndRenderMessage(currentChatTarget, "You", msg, true);
+      
       const encryptedData = await encryptMessage(msg, currentChatTarget);
       socket.emit("send_message", { sender: currentUsername, recipient: currentChatTarget, ...encryptedData });
       input.value = "";
