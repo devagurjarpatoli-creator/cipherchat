@@ -1,24 +1,35 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-
-const aiRoutes = require('./routes/ai');
-const moderationRoutes = require('./routes/moderation');
-const walletRoutes = require('./routes/ownerWallets');
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const cors = require("cors");
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
-
 app.use(cors());
-app.use(express.json());
 
-app.use('/api/v1/ai', aiRoutes);
-app.use('/api/v1', moderationRoutes);
-app.use('/api/v1', walletRoutes);
+const server = http.createServer(app);
 
-app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
-app.get('/', (req, res) => res.send('CipherChat Backend is Running!'));
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`CipherChat Server running on port ${PORT}`));
+// Enable CORS for Socket.io
+const io = new Server(server, {
+  cors: {
+    origin: "*", // Allows requests from your frontend Render domain
+    methods: ["GET", "POST"]
+  }
+});
+
+io.on("connection", (socket) => {
+  console.log("A user connected:", socket.id);
+
+  socket.on("send_message", (data) => {
+    // Send message to ALL connected users (including sender and receiver)
+    io.emit("receive_message", data);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("User disconnected:", socket.id);
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
