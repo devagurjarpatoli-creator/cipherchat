@@ -6,22 +6,25 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 
+app.get("/", (req, res) => {
+  res.send("CipherChat Backend is Running!");
+});
+
 const server = http.createServer(app);
 
-// Enable CORS for Socket.io
 const io = new Server(server, {
   cors: {
-    origin: "*", // Allows requests from your frontend Render domain
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
 
 io.on("connection", (socket) => {
-  console.log("A user connected:", socket.id);
+  console.log("User connected:", socket.id);
 
   socket.on("send_message", (data) => {
-    // Send message to ALL connected users (including sender and receiver)
-    io.emit("receive_message", data);
+    // Broadcasts the message to all OTHER connected clients (excludes sender)
+    socket.broadcast.emit("receive_message", data);
   });
 
   socket.on("disconnect", () => {
