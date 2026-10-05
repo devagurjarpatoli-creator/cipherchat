@@ -7,7 +7,18 @@ const peerPublicKeys = {};
 
 const chatHistory = { "Global": [] };
 
-function bufferToBase64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+// Safe Chunked Buffer-to-Base64 Converter (Fixes Maximum Call Stack Exceeded for Media Files)
+function bufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const len = bytes.byteLength;
+  const chunkSize = 0x8000; // 32KB chunks
+  for (let i = 0; i < len; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
 function base64ToBuffer(b64) {
   const binaryStr = atob(b64);
   const bytes = new Uint8Array(binaryStr.length);
@@ -21,6 +32,24 @@ function formatBytes(bytes) {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+}
+
+// Media Classifier using File Extensions + MIME Types + Data URI headers
+function detectMediaType(fileName = "", mimeType = "", dataUrl = "") {
+  const ext = (fileName.split('.').pop() || '').toLowerCase();
+  const mime = (mimeType || '').toLowerCase();
+  const src = (dataUrl || '').toLowerCase();
+
+  if (mime.startsWith("image/") || src.startsWith("data:image/") || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic'].includes(ext)) {
+    return "image";
+  }
+  if (mime.startsWith("audio/") || src.startsWith("data:audio/") || ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'opus', 'flac', '3gp', 'amr'].includes(ext)) {
+    return "audio";
+  }
+  if (mime.startsWith("video/") || src.startsWith("data:video/") || ['mp4', 'webm', 'mov', 'mkv', 'avi'].includes(ext)) {
+    return "video";
+  }
+  return "document";
 }
 
 function appendBubble(sender, contentObj, isSelf = false) {
@@ -44,32 +73,32 @@ function appendBubble(sender, contentObj, isSelf = false) {
     textSpan.innerText = contentObj.text || "";
     msgDiv.appendChild(textSpan);
   } else if (contentObj.type === "file") {
-    const mime = (contentObj.fileType || "").toLowerCase();
-    const url = contentObj.dataUrl || "";
-    const name = contentObj.fileName || "file";
+    const mediaType = detectMediaType(contentObj.fileName, contentObj.fileType, contentObj.dataUrl);
 
-    if (mime.startsWith("image/") || url.startsWith("data:image/")) {
+    if (mediaType === "image") {
       const img = document.createElement("img");
-      img.src = url;
-      img.alt = name;
+      img.src = contentObj.dataUrl || "";
+      img.alt = contentObj.fileName || "Image";
       img.onload = () => { box.scrollTop = box.scrollHeight; };
       msgDiv.appendChild(img);
-    } else if (mime.startsWith("audio/") || url.startsWith("data:audio/")) {
+    } else if (mediaType === "audio") {
       const audio = document.createElement("audio");
-      audio.src = url;
+      audio.src = contentObj.dataUrl || "";
       audio.controls = true;
+      audio.preload = "metadata";
       msgDiv.appendChild(audio);
-    } else if (mime.startsWith("video/") || url.startsWith("data:video/")) {
+    } else if (mediaType === "video") {
       const video = document.createElement("video");
-      video.src = url;
+      video.src = contentObj.dataUrl || "";
       video.controls = true;
+      video.preload = "metadata";
       msgDiv.appendChild(video);
     } else {
       const link = document.createElement("a");
       link.className = "doc-box";
-      link.href = url;
-      link.download = name;
-      link.innerText = `📄 Download ${name} (${formatBytes(contentObj.fileSize)})`;
+      link.href = contentObj.dataUrl || "#";
+      link.download = contentObj.fileName || "file";
+      link.innerText = `📄 Download ${contentObj.fileName || "File"} (${formatBytes(contentObj.fileSize)})`;
       msgDiv.appendChild(link);
     }
   }
@@ -148,20 +177,22 @@ async function decryptPayload(data) {
   return JSON.parse(jsonStr);
 }
 
-function updateSidebar(usersList) {
+async function updateSidebar(usersList) {
   const ul = document.getElementById("user-list");
   ul.innerHTML = `<li class="user-item ${currentChatTarget === 'Global' ? 'active' : ''}" data-user="Global">🌐 Global Room</li>`;
 
-  usersList.forEach(u => {
+  for (const u of usersList) {
+    if (u.username) {
+      await importPeerPublicKey(u.username, u.publicKeyJwk);
+    }
     if (u.username !== currentUsername) {
-      importPeerPublicKey(u.username, u.publicKeyJwk);
       const li = document.createElement("li");
       li.className = `user-item ${currentChatTarget === u.username ? 'active' : ''}`;
       li.dataset.user = u.username;
       li.innerText = `👤 ${u.username}`;
       ul.appendChild(li);
     }
-  });
+  }
 
   document.querySelectorAll(".user-item").forEach(item => {
     item.addEventListener("click", () => {
@@ -175,15 +206,20 @@ function updateSidebar(usersList) {
 }
 
 async function sendEncryptedMessage(contentObj) {
-  saveAndRenderMessage(currentChatTarget, "You", contentObj, true);
-  const encryptedData = await encryptPayload(contentObj, currentChatTarget);
-  socket.emit("send_message", { sender: currentUsername, recipient: currentChatTarget, ...encryptedData });
+  try {
+    const encryptedData = await encryptPayload(contentObj, currentChatTarget);
+    saveAndRenderMessage(currentChatTarget, "You", contentObj, true);
+    socket.emit("send_message", { sender: currentUsername, recipient: currentChatTarget, ...encryptedData });
+  } catch (err) {
+    console.error("Failed to encrypt and send message:", err);
+    alert("Encryption error: Message or file could not be processed.");
+  }
 }
 
 function processFile(file) {
   return new Promise((resolve, reject) => {
-    if (file.size > 50 * 1024 * 1024) {
-      alert(`File "${file.name}" exceeds 50MB limit.`);
+    if (file.size > 25 * 1024 * 1024) {
+      alert(`File "${file.name}" exceeds 25MB limit.`);
       return reject("File too large");
     }
 
@@ -210,7 +246,7 @@ window.addEventListener("DOMContentLoaded", () => {
   if (typeof io !== "undefined") {
     socket = io(API_URL, { transports: ["websocket", "polling"] });
 
-    socket.on("user_list_update", (usersList) => updateSidebar(usersList));
+    socket.on("user_list_update", async (usersList) => await updateSidebar(usersList));
 
     socket.on("receive_message", async (data) => {
       try {
