@@ -23,7 +23,7 @@ io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
   socket.on("send_message", (data) => {
-    // Broadcasts the message to all OTHER connected clients (excludes sender)
+    // Broadcast message to all other connected users
     socket.broadcast.emit("receive_message", data);
   });
 
@@ -34,5 +34,5 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });

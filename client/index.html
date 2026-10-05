@@ -5,23 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CipherChat</title>
   <style>
+    body { font-family: sans-serif; padding: 15px; max-width: 500px; margin: auto; }
     .hidden { display: none; }
-    #chat-box { border: 1px solid #ccc; height: 280px; overflow-y: auto; padding: 10px; margin-bottom: 10px; }
-    #debug-log { font-family: monospace; font-size: 11px; color: #666; margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 5px; }
+    #chat-box { border: 1px solid #ccc; height: 280px; overflow-y: auto; padding: 10px; margin-bottom: 10px; background: #f9f9f9; border-radius: 6px; }
+    input { width: 70%; padding: 8px; margin-right: 5px; margin-bottom: 8px; }
+    button { padding: 8px 12px; cursor: pointer; }
+    #status { font-weight: bold; color: #2e7d32; margin-bottom: 12px; }
+    #debug-log { font-family: monospace; font-size: 11px; color: #555; margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 8px; }
   </style>
 </head>
 <body>
   <h2>CipherChat</h2>
   <div id="status">Connecting to backend...</div>
 
-  <!-- Auth Section -->
   <div id="auth-section">
     <h3>Login / Register</h3>
     <input type="text" id="username" placeholder="Username" />
     <button id="login-btn">Login / Continue</button>
   </div>
 
-  <!-- Chat Section -->
   <div id="chat-section" class="hidden">
     <h3>Live Chat</h3>
     <div id="chat-box"></div>
@@ -29,10 +31,10 @@
     <button id="send-btn">Send</button>
   </div>
 
-  <!-- On-Screen Debug Area -->
   <div id="debug-log"><strong>Debug Log:</strong></div>
 
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <!-- Loads Socket.io directly from your running Node backend -->
+  <script src="https://cipherchat-x8nx.onrender.com/socket.io/socket.io.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
