@@ -3,12 +3,10 @@ let socket = null;
 let currentUsername = "";
 let currentChatTarget = "Global";
 let rsaKeyPair = null;
-const peerPublicKeys = {}; // { username: CryptoKey }
+const peerPublicKeys = {};
 
-// In-Memory Chat History Store: { "Global": [...], "Alice": [...] }
-const chatHistory = {
-  "Global": []
-};
+// In-Memory Chat History
+const chatHistory = { "Global": [] };
 
 function bufferToBase64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
 function base64ToBuffer(b64) {
@@ -18,8 +16,8 @@ function base64ToBuffer(b64) {
   return bytes.buffer;
 }
 
-// Render single message bubble to DOM
-function appendBubble(sender, text, isSelf = false) {
+// Render message payload (Text or Encrypted File)
+function appendBubble(sender, contentObj, isSelf = false) {
   const box = document.getElementById("chat-box");
   const msgDiv = document.createElement("div");
   msgDiv.className = `msg ${isSelf ? "sent" : "received"}`;
@@ -31,33 +29,43 @@ function appendBubble(sender, text, isSelf = false) {
     msgDiv.appendChild(nameSpan);
   }
 
-  const textSpan = document.createElement("span");
-  textSpan.innerText = text;
-  msgDiv.appendChild(textSpan);
+  if (contentObj.type === "text") {
+    const textSpan = document.createElement("span");
+    textSpan.innerText = contentObj.text;
+    msgDiv.appendChild(textSpan);
+  } else if (contentObj.type === "file") {
+    if (contentObj.fileType.startsWith("image/")) {
+      const img = document.createElement("img");
+      img.src = contentObj.dataUrl;
+      msgDiv.appendChild(img);
+    } else {
+      const link = document.createElement("a");
+      link.className = "file-link";
+      link.href = contentObj.dataUrl;
+      link.download = contentObj.fileName;
+      link.innerText = `📄 Download ${contentObj.fileName}`;
+      msgDiv.appendChild(link);
+    }
+  }
 
   box.appendChild(msgDiv);
   box.scrollTop = box.scrollHeight;
 }
 
-// Store message in history and append if currently active room
-function saveAndRenderMessage(roomOrUser, sender, text, isSelf) {
-  if (!chatHistory[roomOrUser]) {
-    chatHistory[roomOrUser] = [];
-  }
-  chatHistory[roomOrUser].push({ sender, text, isSelf });
+function saveAndRenderMessage(roomOrUser, sender, contentObj, isSelf) {
+  if (!chatHistory[roomOrUser]) chatHistory[roomOrUser] = [];
+  chatHistory[roomOrUser].push({ sender, contentObj, isSelf });
 
-  // Render to screen only if user is actively viewing this room
   if (currentChatTarget === roomOrUser) {
-    appendBubble(sender, text, isSelf);
+    appendBubble(sender, contentObj, isSelf);
   }
 }
 
-// Re-render chat box from history when switching tabs
 function loadChatHistory(target) {
   const box = document.getElementById("chat-box");
   box.innerHTML = "";
   const history = chatHistory[target] || [];
-  history.forEach(msg => appendBubble(msg.sender, msg.text, msg.isSelf));
+  history.forEach(msg => appendBubble(msg.sender, msg.contentObj, msg.isSelf));
 }
 
 async function generateRsaKeyPair() {
@@ -77,14 +85,14 @@ async function importPeerPublicKey(username, jwk) {
   }
 }
 
-async function encryptMessage(plaintext, recipient) {
+async function encryptPayload(jsonPayload, recipient) {
   const aesKey = await window.crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
-  const ciphertextBuf = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, new TextEncoder().encode(plaintext));
+  const plaintextStr = JSON.stringify(jsonPayload);
+  const ciphertextBuf = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, new TextEncoder().encode(plaintextStr));
   const rawAesKeyBuf = await window.crypto.subtle.exportKey("raw", aesKey);
 
   const encryptedAesKeys = {};
-  
   if (recipient === "Global") {
     for (const [peer, publicKey] of Object.entries(peerPublicKeys)) {
       const encKeyBuf = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, rawAesKeyBuf);
@@ -102,7 +110,7 @@ async function encryptMessage(plaintext, recipient) {
   };
 }
 
-async function decryptMessage(data) {
+async function decryptPayload(data) {
   const myEncryptedAesKeyB64 = data.encryptedAesKeys[currentUsername];
   if (!myEncryptedAesKeyB64) throw new Error("No payload key for recipient.");
 
@@ -110,7 +118,8 @@ async function decryptMessage(data) {
   const aesKey = await window.crypto.subtle.importKey("raw", rawAesKeyBuf, { name: "AES-GCM" }, true, ["decrypt"]);
   const decryptedBuf = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: base64ToBuffer(data.iv) }, aesKey, base64ToBuffer(data.ciphertext));
 
-  return new TextDecoder().decode(decryptedBuf);
+  const jsonStr = new TextDecoder().decode(decryptedBuf);
+  return JSON.parse(jsonStr);
 }
 
 function updateSidebar(usersList) {
@@ -128,19 +137,21 @@ function updateSidebar(usersList) {
     }
   });
 
-  // Switch chat room / DM tab
   document.querySelectorAll(".user-item").forEach(item => {
     item.addEventListener("click", () => {
       document.querySelectorAll(".user-item").forEach(i => i.classList.remove("active"));
       item.classList.add("active");
-      
       currentChatTarget = item.dataset.user;
       document.getElementById("current-chat-title").innerText = `Chatting in: ${currentChatTarget === 'Global' ? 'Global Room' : 'Direct Message with ' + currentChatTarget}`;
-      
-      // Load saved messages for this conversation
       loadChatHistory(currentChatTarget);
     });
   });
+}
+
+async function sendEncryptedMessage(contentObj) {
+  saveAndRenderMessage(currentChatTarget, "You", contentObj, true);
+  const encryptedData = await encryptPayload(contentObj, currentChatTarget);
+  socket.emit("send_message", { sender: currentUsername, recipient: currentChatTarget, ...encryptedData });
 }
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -151,16 +162,13 @@ window.addEventListener("DOMContentLoaded", () => {
   if (typeof io !== "undefined") {
     socket = io(API_URL, { transports: ["websocket", "polling"] });
 
-    socket.on("user_list_update", (usersList) => {
-      updateSidebar(usersList);
-    });
+    socket.on("user_list_update", (usersList) => updateSidebar(usersList));
 
     socket.on("receive_message", async (data) => {
       try {
-        const plaintext = await decryptMessage(data);
+        const decryptedContent = await decryptPayload(data);
         const chatRoom = data.recipient === "Global" ? "Global" : data.sender;
-        
-        saveAndRenderMessage(chatRoom, data.sender, plaintext, false);
+        saveAndRenderMessage(chatRoom, data.sender, decryptedContent, false);
       } catch (err) {
         console.error("Decryption failed:", err);
       }
@@ -182,20 +190,46 @@ window.addEventListener("DOMContentLoaded", () => {
     document.getElementById("chat-section").classList.remove("hidden");
   });
 
+  // Text Send Handler
   document.getElementById("send-btn").addEventListener("click", async () => {
     const input = document.getElementById("message-input");
     const msg = input.value.trim();
-
     if (msg) {
-      saveAndRenderMessage(currentChatTarget, "You", msg, true);
-      
-      const encryptedData = await encryptMessage(msg, currentChatTarget);
-      socket.emit("send_message", { sender: currentUsername, recipient: currentChatTarget, ...encryptedData });
+      await sendEncryptedMessage({ type: "text", text: msg });
       input.value = "";
     }
   });
 
   document.getElementById("message-input").addEventListener("keypress", (e) => {
     if (e.key === "Enter") document.getElementById("send-btn").click();
+  });
+
+  // File Attachment Handler
+  const attachBtn = document.getElementById("attach-btn");
+  const fileInput = document.getElementById("file-input");
+
+  attachBtn.addEventListener("click", () => fileInput.click());
+
+  fileInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 8 * 1024 * 1024) {
+      alert("File size exceeds 8MB limit!");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result;
+      await sendEncryptedMessage({
+        type: "file",
+        fileName: file.name,
+        fileType: file.type,
+        dataUrl: dataUrl
+      });
+      fileInput.value = "";
+    };
+    reader.readAsDataURL(file);
   });
 });

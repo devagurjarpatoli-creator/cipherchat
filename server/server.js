@@ -12,10 +12,10 @@ app.get("/", (req, res) => {
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+  cors: { origin: "*", methods: ["GET", "POST"] },
+  maxHttpBufferSize: 1e7 // Increased limit to 10MB for encrypted files
 });
 
-// Store active users: socket.id -> { username, publicKeyJwk }
 const activeUsers = {};
 
 function broadcastUserList() {
@@ -30,20 +30,17 @@ io.on("connection", (socket) => {
   socket.on("register_public_key", ({ username, publicKeyJwk }) => {
     activeUsers[socket.id] = { username, publicKeyJwk };
     socket.username = username;
-    console.log(`Registered user: ${username}`);
     broadcastUserList();
   });
 
   socket.on("send_message", (data) => {
     if (data.recipient && data.recipient !== "Global") {
-      // Direct Message to target socket
       const targetEntry = Object.entries(activeUsers).find(([_, u]) => u.username === data.recipient);
       if (targetEntry) {
         const [targetSocketId] = targetEntry;
         io.to(targetSocketId).emit("receive_message", data);
       }
     } else {
-      // Global broadcast
       socket.broadcast.emit("receive_message", data);
     }
   });
