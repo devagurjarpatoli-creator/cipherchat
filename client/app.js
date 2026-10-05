@@ -23,18 +23,6 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
-function getFileIcon(mimeType, fileName) {
-  const ext = fileName ? fileName.split('.').pop().toLowerCase() : '';
-  if (mimeType.startsWith("image/")) return "🖼️";
-  if (mimeType.startsWith("video/")) return "🎥";
-  if (mimeType.startsWith("audio/")) return "🎵";
-  if (mimeType.includes("pdf") || ext === "pdf") return "📕";
-  if (mimeType.includes("word") || ext === "doc" || ext === "docx") return "📘";
-  if (mimeType.includes("zip") || mimeType.includes("rar") || ext === "zip" || ext === "7z") return "📦";
-  if (ext === "js" || ext === "py" || ext === "html" || ext === "css" || ext === "json") return "💻";
-  return "📄";
-}
-
 function appendBubble(sender, contentObj, isSelf = false) {
   const box = document.getElementById("chat-box");
   const msgDiv = document.createElement("div");
@@ -47,54 +35,41 @@ function appendBubble(sender, contentObj, isSelf = false) {
     msgDiv.appendChild(nameSpan);
   }
 
-  if (contentObj.type === "text") {
+  if (typeof contentObj === "string") {
     const textSpan = document.createElement("span");
-    textSpan.innerText = contentObj.text;
+    textSpan.innerText = contentObj;
+    msgDiv.appendChild(textSpan);
+  } else if (contentObj.type === "text") {
+    const textSpan = document.createElement("span");
+    textSpan.innerText = contentObj.text || "";
     msgDiv.appendChild(textSpan);
   } else if (contentObj.type === "file") {
-    const mime = contentObj.fileType || "";
+    const mime = (contentObj.fileType || "").toLowerCase();
+    const url = contentObj.dataUrl || "";
+    const name = contentObj.fileName || "file";
 
-    if (mime.startsWith("image/")) {
+    if (mime.startsWith("image/") || url.startsWith("data:image/")) {
       const img = document.createElement("img");
-      img.src = contentObj.dataUrl;
+      img.src = url;
+      img.alt = name;
+      img.onload = () => { box.scrollTop = box.scrollHeight; };
       msgDiv.appendChild(img);
-    } else if (mime.startsWith("video/")) {
-      const video = document.createElement("video");
-      video.src = contentObj.dataUrl;
-      video.controls = true;
-      msgDiv.appendChild(video);
-    } else if (mime.startsWith("audio/")) {
+    } else if (mime.startsWith("audio/") || url.startsWith("data:audio/")) {
       const audio = document.createElement("audio");
-      audio.src = contentObj.dataUrl;
+      audio.src = url;
       audio.controls = true;
       msgDiv.appendChild(audio);
+    } else if (mime.startsWith("video/") || url.startsWith("data:video/")) {
+      const video = document.createElement("video");
+      video.src = url;
+      video.controls = true;
+      msgDiv.appendChild(video);
     } else {
-      // Document / PDF / Archive / Code Fallback Download Box
       const link = document.createElement("a");
       link.className = "doc-box";
-      link.href = contentObj.dataUrl;
-      link.download = contentObj.fileName || "downloaded_file";
-      
-      const iconSpan = document.createElement("span");
-      iconSpan.className = "doc-icon";
-      iconSpan.innerText = getFileIcon(mime, contentObj.fileName);
-
-      const infoDiv = document.createElement("div");
-      infoDiv.className = "doc-info";
-      
-      const nameDiv = document.createElement("span");
-      nameDiv.className = "doc-name";
-      nameDiv.innerText = contentObj.fileName || "File";
-
-      const sizeDiv = document.createElement("span");
-      sizeDiv.className = "doc-size";
-      sizeDiv.innerText = contentObj.fileSize ? formatBytes(contentObj.fileSize) : "Click to download";
-
-      infoDiv.appendChild(nameDiv);
-      infoDiv.appendChild(sizeDiv);
-      link.appendChild(iconSpan);
-      link.appendChild(infoDiv);
-
+      link.href = url;
+      link.download = name;
+      link.innerText = `📄 Download ${name} (${formatBytes(contentObj.fileSize)})`;
       msgDiv.appendChild(link);
     }
   }
@@ -205,66 +180,25 @@ async function sendEncryptedMessage(contentObj) {
   socket.emit("send_message", { sender: currentUsername, recipient: currentChatTarget, ...encryptedData });
 }
 
-// Process single file
 function processFile(file) {
   return new Promise((resolve, reject) => {
     if (file.size > 50 * 1024 * 1024) {
-      alert(`File "${file.name}" exceeds 50MB per-file memory limit.`);
+      alert(`File "${file.name}" exceeds 50MB limit.`);
       return reject("File too large");
     }
 
-    if (file.type.startsWith("image/")) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          let width = img.width;
-          let height = img.height;
-          const maxDim = 1200;
-
-          if (width > maxDim || height > maxDim) {
-            if (width > height) {
-              height = Math.round((height * maxDim) / width);
-              width = maxDim;
-            } else {
-              width = Math.round((width * maxDim) / height);
-              height = maxDim;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, width, height);
-
-          resolve({
-            type: "file",
-            fileName: file.name,
-            fileType: "image/jpeg",
-            fileSize: file.size,
-            dataUrl: canvas.toDataURL("image/jpeg", 0.85)
-          });
-        };
-        img.onerror = reject;
-        img.src = e.target.result;
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    } else {
-      const reader = new FileReader();
-      reader.onload = () => {
-        resolve({
-          type: "file",
-          fileName: file.name,
-          fileType: file.type || "application/octet-stream",
-          fileSize: file.size,
-          dataUrl: reader.result
-        });
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve({
+        type: "file",
+        fileName: file.name,
+        fileType: file.type || "application/octet-stream",
+        fileSize: file.size,
+        dataUrl: reader.result
+      });
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
   });
 }
 
@@ -317,7 +251,6 @@ window.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Enter") document.getElementById("send-btn").click();
   });
 
-  // Handle Multi-File Selection
   const fileInput = document.getElementById("file-input");
   fileInput.addEventListener("change", async (e) => {
     const files = Array.from(e.target.files);
