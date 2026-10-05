@@ -13,7 +13,7 @@ app.get("/", (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
-  maxHttpBufferSize: 5e7 // 50MB buffer limit
+  maxHttpBufferSize: 1e8 // 100MB max buffer size per payload
 });
 
 const activeUsers = {};

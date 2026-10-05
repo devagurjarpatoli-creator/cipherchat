@@ -5,7 +5,6 @@ let currentChatTarget = "Global";
 let rsaKeyPair = null;
 const peerPublicKeys = {};
 
-// In-Memory Chat History Store
 const chatHistory = { "Global": [] };
 
 function bufferToBase64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
@@ -16,7 +15,26 @@ function base64ToBuffer(b64) {
   return bytes.buffer;
 }
 
-// Append Message Bubble to DOM
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+}
+
+function getFileIcon(mimeType, fileName) {
+  const ext = fileName ? fileName.split('.').pop().toLowerCase() : '';
+  if (mimeType.startsWith("image/")) return "🖼️";
+  if (mimeType.startsWith("video/")) return "🎥";
+  if (mimeType.startsWith("audio/")) return "🎵";
+  if (mimeType.includes("pdf") || ext === "pdf") return "📕";
+  if (mimeType.includes("word") || ext === "doc" || ext === "docx") return "📘";
+  if (mimeType.includes("zip") || mimeType.includes("rar") || ext === "zip" || ext === "7z") return "📦";
+  if (ext === "js" || ext === "py" || ext === "html" || ext === "css" || ext === "json") return "💻";
+  return "📄";
+}
+
 function appendBubble(sender, contentObj, isSelf = false) {
   const box = document.getElementById("chat-box");
   const msgDiv = document.createElement("div");
@@ -34,19 +52,49 @@ function appendBubble(sender, contentObj, isSelf = false) {
     textSpan.innerText = contentObj.text;
     msgDiv.appendChild(textSpan);
   } else if (contentObj.type === "file") {
-    const isImage = (contentObj.fileType && contentObj.fileType.startsWith("image/")) || 
-                    (contentObj.dataUrl && contentObj.dataUrl.startsWith("data:image/"));
-    
-    if (isImage) {
+    const mime = contentObj.fileType || "";
+
+    if (mime.startsWith("image/")) {
       const img = document.createElement("img");
       img.src = contentObj.dataUrl;
       msgDiv.appendChild(img);
+    } else if (mime.startsWith("video/")) {
+      const video = document.createElement("video");
+      video.src = contentObj.dataUrl;
+      video.controls = true;
+      msgDiv.appendChild(video);
+    } else if (mime.startsWith("audio/")) {
+      const audio = document.createElement("audio");
+      audio.src = contentObj.dataUrl;
+      audio.controls = true;
+      msgDiv.appendChild(audio);
     } else {
+      // Document / PDF / Archive / Code Fallback Download Box
       const link = document.createElement("a");
-      link.className = "file-link";
+      link.className = "doc-box";
       link.href = contentObj.dataUrl;
       link.download = contentObj.fileName || "downloaded_file";
-      link.innerText = `📄 Download ${contentObj.fileName || "file"}`;
+      
+      const iconSpan = document.createElement("span");
+      iconSpan.className = "doc-icon";
+      iconSpan.innerText = getFileIcon(mime, contentObj.fileName);
+
+      const infoDiv = document.createElement("div");
+      infoDiv.className = "doc-info";
+      
+      const nameDiv = document.createElement("span");
+      nameDiv.className = "doc-name";
+      nameDiv.innerText = contentObj.fileName || "File";
+
+      const sizeDiv = document.createElement("span");
+      sizeDiv.className = "doc-size";
+      sizeDiv.innerText = contentObj.fileSize ? formatBytes(contentObj.fileSize) : "Click to download";
+
+      infoDiv.appendChild(nameDiv);
+      infoDiv.appendChild(sizeDiv);
+      link.appendChild(iconSpan);
+      link.appendChild(infoDiv);
+
       msgDiv.appendChild(link);
     }
   }
@@ -157,9 +205,14 @@ async function sendEncryptedMessage(contentObj) {
   socket.emit("send_message", { sender: currentUsername, recipient: currentChatTarget, ...encryptedData });
 }
 
-// Client-side image optimizer using HTML5 Canvas
-function processAndOptimizeFile(file) {
+// Process single file
+function processFile(file) {
   return new Promise((resolve, reject) => {
+    if (file.size > 50 * 1024 * 1024) {
+      alert(`File "${file.name}" exceeds 50MB per-file memory limit.`);
+      return reject("File too large");
+    }
+
     if (file.type.startsWith("image/")) {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -185,12 +238,12 @@ function processAndOptimizeFile(file) {
           const ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0, width, height);
 
-          const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.82);
           resolve({
             type: "file",
             fileName: file.name,
             fileType: "image/jpeg",
-            dataUrl: compressedDataUrl
+            fileSize: file.size,
+            dataUrl: canvas.toDataURL("image/jpeg", 0.85)
           });
         };
         img.onerror = reject;
@@ -199,16 +252,13 @@ function processAndOptimizeFile(file) {
       reader.onerror = reject;
       reader.readAsDataURL(file);
     } else {
-      if (file.size > 5 * 1024 * 1024) {
-        alert("File size exceeds 5MB limit!");
-        return reject("File too large");
-      }
       const reader = new FileReader();
       reader.onload = () => {
         resolve({
           type: "file",
           fileName: file.name,
           fileType: file.type || "application/octet-stream",
+          fileSize: file.size,
           dataUrl: reader.result
         });
       };
@@ -254,7 +304,6 @@ window.addEventListener("DOMContentLoaded", () => {
     document.getElementById("chat-section").classList.remove("hidden");
   });
 
-  // Send Text
   document.getElementById("send-btn").addEventListener("click", async () => {
     const input = document.getElementById("message-input");
     const msg = input.value.trim();
@@ -268,21 +317,23 @@ window.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Enter") document.getElementById("send-btn").click();
   });
 
-  // Send Image/File
+  // Handle Multi-File Selection
   const fileInput = document.getElementById("file-input");
   fileInput.addEventListener("change", async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
 
-    try {
-      document.getElementById("status").innerText = "Encrypting file...";
-      const filePayload = await processAndOptimizeFile(file);
-      await sendEncryptedMessage(filePayload);
-      document.getElementById("status").innerText = `Logged in as: ${currentUsername}`;
-      fileInput.value = "";
-    } catch (err) {
-      console.error("File processing failed:", err);
-      document.getElementById("status").innerText = `Logged in as: ${currentUsername}`;
+    for (const file of files) {
+      try {
+        document.getElementById("status").innerText = `Encrypting ${file.name}...`;
+        const filePayload = await processFile(file);
+        await sendEncryptedMessage(filePayload);
+      } catch (err) {
+        console.error("File processing error:", err);
+      }
     }
+
+    document.getElementById("status").innerText = `Logged in as: ${currentUsername}`;
+    fileInput.value = "";
   });
 });

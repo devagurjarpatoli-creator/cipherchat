@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CipherChat — Encrypted Files & DMs</title>
+  <title>CipherChat — E2EE Multi-Media Sharing</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 10px; }
-    .app-card { background: #fff; width: 100%; max-width: 800px; height: 90vh; max-height: 700px; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,0.08); display: flex; flex-direction: column; overflow: hidden; }
+    .app-card { background: #fff; width: 100%; max-width: 850px; height: 90vh; max-height: 720px; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,0.08); display: flex; flex-direction: column; overflow: hidden; }
     
     .header { background: #128c7e; color: #fff; padding: 14px; display: flex; justify-content: space-between; align-items: center; }
     .header h2 { font-size: 1.1rem; }
@@ -28,20 +28,27 @@
 
     .chat-area { flex: 1; display: flex; flex-direction: column; background: #e5ddd5; }
     .chat-header { background: #ededed; padding: 10px 16px; font-weight: bold; font-size: 0.9rem; border-bottom: 1px solid #ddd; color: #333; }
-    #chat-box { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+    #chat-box { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
     
-    .msg { max-width: 75%; padding: 8px 12px; border-radius: 8px; font-size: 0.9rem; line-height: 1.4; word-wrap: break-word; }
+    .msg { max-width: 80%; padding: 10px 12px; border-radius: 8px; font-size: 0.9rem; line-height: 1.4; word-wrap: break-word; }
     .msg.sent { align-self: flex-end; background: #dcf8c6; border-top-right-radius: 2px; }
     .msg.received { align-self: flex-start; background: #ffffff; border-top-left-radius: 2px; }
-    .msg .sender-name { font-size: 0.72rem; font-weight: bold; color: #075e54; margin-bottom: 2px; }
+    .msg .sender-name { font-size: 0.72rem; font-weight: bold; color: #075e54; margin-bottom: 4px; }
     
-    .msg img { max-width: 100%; max-height: 250px; border-radius: 6px; margin-top: 4px; display: block; object-fit: contain; }
-    .msg a.file-link { color: #075e54; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 4px; }
+    /* Media Styling */
+    .msg img { max-width: 100%; max-height: 280px; border-radius: 6px; margin-top: 4px; display: block; object-fit: contain; }
+    .msg video { max-width: 100%; max-height: 280px; border-radius: 6px; margin-top: 4px; display: block; }
+    .msg audio { width: 100%; max-width: 250px; margin-top: 4px; display: block; }
+    .msg .doc-box { display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,0.05); padding: 8px 12px; border-radius: 6px; margin-top: 4px; text-decoration: none; color: #333; font-weight: 500; }
+    .msg .doc-box:hover { background: rgba(0,0,0,0.08); }
+    .msg .doc-icon { font-size: 1.4rem; }
+    .msg .doc-info { display: flex; flex-direction: column; overflow: hidden; }
+    .msg .doc-name { font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: bold; color: #075e54; }
+    .msg .doc-size { font-size: 0.72rem; color: #666; }
 
     .input-bar { display: flex; gap: 8px; padding: 12px; background: #f0f0f0; border-top: 1px solid #e0e0e0; align-items: center; }
     .input-bar input[type="text"] { flex: 1; margin-bottom: 0; }
     
-    /* Native File Attachment Label Button */
     .file-btn { 
       background: #666; 
       padding: 10px 14px; 
@@ -88,9 +95,9 @@
         <div class="chat-header" id="current-chat-title">Chatting in: Global Room</div>
         <div id="chat-box"></div>
         <div class="input-bar">
-          <!-- HTML Native Label Trigger for Mobile Compatibility -->
-          <label for="file-input" class="file-btn" title="Attach image or file">📎</label>
-          <input type="file" id="file-input" style="display: none;" />
+          <!-- Allow multiple files of ANY type -->
+          <label for="file-input" class="file-btn" title="Attach multiple images, videos, audio, or documents">📎</label>
+          <input type="file" id="file-input" style="display: none;" multiple accept="*/*" />
           
           <input type="text" id="message-input" placeholder="Type an encrypted message..." />
           <button id="send-btn">Send</button>
