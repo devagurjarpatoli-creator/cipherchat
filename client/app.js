@@ -1,10 +1,10 @@
 const API_URL = "https://cipherchat-x8nx.onrender.com";
 let socket = null;
 let currentUsername = "";
+let currentChatTarget = "Global";
 let rsaKeyPair = null;
-const peerPublicKeys = {};
+const peerPublicKeys = {}; // { username: CryptoKey }
 
-// Convert Buffer <-> Base64
 function bufferToBase64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
 function base64ToBuffer(b64) {
   const binaryStr = atob(b64);
@@ -13,7 +13,6 @@ function base64ToBuffer(b64) {
   return bytes.buffer;
 }
 
-// Helper to append chat bubble to DOM
 function appendBubble(sender, text, isSelf = false) {
   const box = document.getElementById("chat-box");
   const msgDiv = document.createElement("div");
@@ -34,7 +33,6 @@ function appendBubble(sender, text, isSelf = false) {
   box.scrollTop = box.scrollHeight;
 }
 
-// 1. Key Generation
 async function generateRsaKeyPair() {
   rsaKeyPair = await window.crypto.subtle.generateKey(
     { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
@@ -42,7 +40,6 @@ async function generateRsaKeyPair() {
   );
 }
 
-// 2. Import Public Key
 async function importPeerPublicKey(username, jwk) {
   try {
     peerPublicKeys[username] = await window.crypto.subtle.importKey(
@@ -53,17 +50,22 @@ async function importPeerPublicKey(username, jwk) {
   }
 }
 
-// 3. Encrypt Payload
-async function encryptMessage(plaintext) {
+async function encryptMessage(plaintext, recipient) {
   const aesKey = await window.crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const ciphertextBuf = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, new TextEncoder().encode(plaintext));
   const rawAesKeyBuf = await window.crypto.subtle.exportKey("raw", aesKey);
 
   const encryptedAesKeys = {};
-  for (const [peer, publicKey] of Object.entries(peerPublicKeys)) {
-    const encKeyBuf = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, rawAesKeyBuf);
-    encryptedAesKeys[peer] = bufferToBase64(encKeyBuf);
+  
+  if (recipient === "Global") {
+    for (const [peer, publicKey] of Object.entries(peerPublicKeys)) {
+      const encKeyBuf = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, rawAesKeyBuf);
+      encryptedAesKeys[peer] = bufferToBase64(encKeyBuf);
+    }
+  } else if (peerPublicKeys[recipient]) {
+    const encKeyBuf = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, peerPublicKeys[recipient], rawAesKeyBuf);
+    encryptedAesKeys[recipient] = bufferToBase64(encKeyBuf);
   }
 
   return {
@@ -73,7 +75,6 @@ async function encryptMessage(plaintext) {
   };
 }
 
-// 4. Decrypt Payload
 async function decryptMessage(data) {
   const myEncryptedAesKeyB64 = data.encryptedAesKeys[currentUsername];
   if (!myEncryptedAesKeyB64) throw new Error("No payload key for recipient.");
@@ -85,48 +86,64 @@ async function decryptMessage(data) {
   return new TextDecoder().decode(decryptedBuf);
 }
 
-// App Initialization
+function updateSidebar(usersList) {
+  const ul = document.getElementById("user-list");
+  ul.innerHTML = `<li class="user-item ${currentChatTarget === 'Global' ? 'active' : ''}" data-user="Global">🌐 Global Room</li>`;
+
+  usersList.forEach(u => {
+    if (u.username !== currentUsername) {
+      importPeerPublicKey(u.username, u.publicKeyJwk);
+      const li = document.createElement("li");
+      li.className = `user-item ${currentChatTarget === u.username ? 'active' : ''}`;
+      li.dataset.user = u.username;
+      li.innerText = `👤 ${u.username}`;
+      ul.appendChild(li);
+    }
+  });
+
+  // Attach click events for chat switching
+  document.querySelectorAll(".user-item").forEach(item => {
+    item.addEventListener("click", () => {
+      document.querySelectorAll(".user-item").forEach(i => i.classList.remove("active"));
+      item.classList.add("active");
+      currentChatTarget = item.dataset.user;
+      document.getElementById("current-chat-title").innerText = `Chatting in: ${currentChatTarget === 'Global' ? 'Global Room' : 'Direct Message with ' + currentChatTarget}`;
+      document.getElementById("chat-box").innerHTML = ""; // Clear box on tab switch
+    });
+  });
+}
+
 window.addEventListener("DOMContentLoaded", () => {
-  // Backend status check
   fetch(API_URL)
-    .then(res => res.text())
-    .then(() => document.getElementById("status").innerText = "🔒 End-to-End Encrypted")
+    .then(() => document.getElementById("status").innerText = "🔒 E2EE Online")
     .catch(() => document.getElementById("status").innerText = "Offline");
 
   if (typeof io !== "undefined") {
     socket = io(API_URL, { transports: ["websocket", "polling"] });
 
-    socket.on("existing_keys", async (keysObj) => {
-      for (const [user, jwk] of Object.entries(keysObj)) {
-        if (user !== currentUsername) await importPeerPublicKey(user, jwk);
-      }
-    });
-
-    socket.on("user_joined", async ({ username, publicKeyJwk }) => {
-      if (username !== currentUsername) await importPeerPublicKey(username, publicKeyJwk);
-    });
-
-    socket.on("user_left", ({ username }) => {
-      delete peerPublicKeys[username];
+    socket.on("user_list_update", (usersList) => {
+      updateSidebar(usersList);
     });
 
     socket.on("receive_message", async (data) => {
       try {
         const plaintext = await decryptMessage(data);
-        appendBubble(data.sender, plaintext, false);
+        if (data.recipient === "Global" && currentChatTarget === "Global") {
+          appendBubble(data.sender, plaintext, false);
+        } else if (data.recipient !== "Global" && currentChatTarget === data.sender) {
+          appendBubble(data.sender, plaintext, false);
+        }
       } catch (err) {
-        console.error("Decryption error:", err);
+        console.error("Decryption failed:", err);
       }
     });
   }
 
-  // Login Click Handler
   document.getElementById("login-btn").addEventListener("click", async () => {
-    const usernameInput = document.getElementById("username");
-    currentUsername = usernameInput ? usernameInput.value.trim() : "";
-    if (!currentUsername) return alert("Please enter a display name!");
+    currentUsername = document.getElementById("username").value.trim();
+    if (!currentUsername) return alert("Please enter a username!");
 
-    document.getElementById("status").innerText = "Generating security keys...";
+    document.getElementById("status").innerText = "Generating keys...";
     await generateRsaKeyPair();
 
     const publicKeyJwk = await window.crypto.subtle.exportKey("jwk", rsaKeyPair.publicKey);
@@ -137,23 +154,18 @@ window.addEventListener("DOMContentLoaded", () => {
     document.getElementById("chat-section").classList.remove("hidden");
   });
 
-  // Send Message Click Handler
   document.getElementById("send-btn").addEventListener("click", async () => {
     const input = document.getElementById("message-input");
     const msg = input.value.trim();
 
     if (msg) {
       appendBubble("You", msg, true);
-
-      if (socket && socket.connected && Object.keys(peerPublicKeys).length > 0) {
-        const encryptedData = await encryptMessage(msg);
-        socket.emit("send_message", { sender: currentUsername, ...encryptedData });
-      }
+      const encryptedData = await encryptMessage(msg, currentChatTarget);
+      socket.emit("send_message", { sender: currentUsername, recipient: currentChatTarget, ...encryptedData });
       input.value = "";
     }
   });
 
-  // Press Enter to Send
   document.getElementById("message-input").addEventListener("keypress", (e) => {
     if (e.key === "Enter") document.getElementById("send-btn").click();
   });
